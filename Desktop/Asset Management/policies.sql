@@ -1,0 +1,2 @@
+-- Run in Supabase SQL Editor to fix RLS + schema for demo/assessment
+-- See supabase/migrations/003_fix_rls_and_allocations.sql for full migration
