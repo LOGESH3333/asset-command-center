@@ -1,24 +1,23 @@
+import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { parseDemoSessionCookie, DEMO_SESSION_COOKIE } from '@/lib/auth/demo-session';
 
-const PROTECTED_PREFIXES = [
-  '/dashboard',
-  '/dashboard/assets',
-  '/dashboard/requests',
-  '/dashboard/maintenance',
-  '/dashboard/vendors',
-  '/dashboard/categories',
-  '/dashboard/reports',
-  '/dashboard/notifications',
-  '/dashboard/audit-logs',
-  '/dashboard/settings',
-  '/dashboard/users',
-];
+const AUTH_ROUTES = ['/login', '/signup', '/forgot-password', '/reset-password'];
+
+function isAuthRoute(pathname: string) {
+  return AUTH_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
+}
+
+function isPublicRoute(pathname: string) {
+  return (
+    pathname.startsWith('/asset-lookup') ||
+    pathname.startsWith('/auth/') ||
+    pathname === '/'
+  );
+}
 
 function isProtectedRoute(pathname: string) {
-  return PROTECTED_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
-  );
+  return pathname === '/dashboard' || pathname.startsWith('/dashboard/');
 }
 
 function hasDemoSession(request: NextRequest): boolean {
@@ -26,14 +25,39 @@ function hasDemoSession(request: NextRequest): boolean {
   return parseDemoSessionCookie(raw) !== null;
 }
 
-export async function updateSession(request: NextRequest) {
-  const pathname = request.nextUrl.pathname;
-  const isAuthRoute =
-    pathname.startsWith('/login') ||
-    pathname.startsWith('/signup') ||
-    pathname.startsWith('/auth');
+function isDemoAuthEnabled() {
+  return process.env.NEXT_PUBLIC_DEMO_AUTH === 'true';
+}
 
-  const authenticated = hasDemoSession(request);
+export async function updateSession(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({ request });
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+          supabaseResponse = NextResponse.next({ request });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          );
+        },
+      },
+    }
+  );
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const pathname = request.nextUrl.pathname;
+  const demoAuthenticated = isDemoAuthEnabled() && hasDemoSession(request);
+  const authenticated = Boolean(user) || demoAuthenticated;
 
   if (!authenticated && isProtectedRoute(pathname)) {
     const url = request.nextUrl.clone();
@@ -44,11 +68,15 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (authenticated && isAuthRoute) {
+  if (authenticated && isAuthRoute(pathname) && user) {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
     return NextResponse.redirect(url);
   }
 
-  return NextResponse.next({ request });
+  if (isPublicRoute(pathname) || isAuthRoute(pathname) || isProtectedRoute(pathname)) {
+    return supabaseResponse;
+  }
+
+  return supabaseResponse;
 }

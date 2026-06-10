@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/auth-provider";
-import { canManageUsers, canViewReports, canManageApprovals, canManageProcurement } from "@/lib/auth/roles";
+import { isNavVisible } from "@/lib/auth/permissions";
 
 const mobileNav = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
@@ -53,14 +53,7 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
   const pathname = usePathname();
   const { role } = useAuth();
 
-  const filteredNav = mobileNav.filter((item) => {
-    if (item.href === '/dashboard/users') return canManageUsers(role);
-    if (item.href === '/dashboard/reports') return canViewReports(role);
-    if (item.href === '/dashboard/settings') return canManageUsers(role);
-    if (item.href === '/dashboard/approvals') return canManageApprovals(role);
-    if (item.href === '/dashboard/procurement' || item.href === '/dashboard/purchase-orders') return canManageProcurement(role);
-    return true;
-  });
+  const filteredNav = mobileNav.filter((item) => isNavVisible(role, item.href));
 
   return (
     <AnimatePresence>

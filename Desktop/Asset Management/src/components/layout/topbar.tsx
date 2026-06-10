@@ -6,6 +6,7 @@ import { Bell, Search, Sun, Moon, Command, PanelRight, Menu } from "lucide-react
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/auth-provider";
+import { getUnreadCountAction } from "@/app/actions/notifications";
 import { type Theme, getStoredTheme, applyTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { StatusBadge } from "@/components/enterprise/status-badge";
@@ -19,6 +20,7 @@ interface TopbarProps {
 
 export function Topbar({ onToggleActivity, onToggleMobileNav, onOpenCommandPalette, activityOpen }: TopbarProps) {
   const [theme, setTheme] = useState<Theme>("dark");
+  const [unread, setUnread] = useState(0);
   const { profile } = useAuth();
 
   useEffect(() => {
@@ -26,6 +28,21 @@ export function Topbar({ onToggleActivity, onToggleMobileNav, onOpenCommandPalet
     applyTheme(current);
     setTheme(current);
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const load = () => {
+      getUnreadCountAction().then((r) => {
+        if (mounted) setUnread(r.count);
+      });
+    };
+    load();
+    const interval = setInterval(load, 60_000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [profile?.id]);
 
   const toggleTheme = () => {
     const next: Theme = theme === "light" ? "dark" : "light";
@@ -90,7 +107,11 @@ export function Topbar({ onToggleActivity, onToggleMobileNav, onOpenCommandPalet
               className="relative h-10 w-10 rounded-xl text-[#a1a1aa] transition-colors hover:bg-[rgba(139,92,246,0.1)] hover:text-white"
             >
               <Bell className="h-[18px] w-[18px]" />
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-violet-500 ring-2 ring-[#0b0b12] bm-glow-pulse" />
+              {unread > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-500 px-1 text-[10px] font-bold text-white ring-2 ring-[#0b0b12]">
+                  {unread > 99 ? '99+' : unread}
+                </span>
+              )}
             </Button>
           </Link>
 

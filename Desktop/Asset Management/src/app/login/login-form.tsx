@@ -3,13 +3,18 @@
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { createClient } from '@/lib/supabase/client';
 import { createDemoSession, saveDemoSession } from '@/lib/auth/demo-session';
+import { mapLoginError } from '@/lib/auth/errors';
+import { logAuthEvent, normalizeAuthEmail, serializeAuthError } from '@/lib/auth/auth-log';
 import { AuthShell } from '@/components/auth/auth-shell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ErrorAlert } from '@/components/common/ErrorAlert';
 import { Loader2 } from 'lucide-react';
+
+const DEMO_AUTH = process.env.NEXT_PUBLIC_DEMO_AUTH === 'true';
 
 export default function LoginForm() {
   const searchParams = useSearchParams();
@@ -24,24 +29,81 @@ export default function LoginForm() {
     setLoading(true);
     setError(null);
 
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail || !password) {
+    const normalizedEmail = normalizeAuthEmail(email);
+    if (!normalizedEmail || !password) {
       setError('Please enter your email and password.');
       setLoading(false);
       return;
     }
 
-    // Demo mode: any credentials are accepted
-    const session = createDemoSession({ email: trimmedEmail });
-    saveDemoSession(session);
+    if (DEMO_AUTH) {
+      const session = createDemoSession({ email: normalizedEmail });
+      saveDemoSession(session);
+      window.location.href = redirect;
+      return;
+    }
+
+    const supabase = createClient();
+
+    logAuthEvent('login', {
+      email: normalizedEmail,
+      provider: 'supabase-signInWithPassword',
+    });
+
+    const { data, error: signInError } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password,
+    });
+
+    const errorCode =
+      signInError && 'code' in signInError
+        ? String((signInError as { code?: string }).code)
+        : undefined;
+
+    logAuthEvent('login', {
+      email: normalizedEmail,
+      response: {
+        error: serializeAuthError(signInError),
+        hasSession: Boolean(data?.session),
+        userId: data?.user?.id,
+        emailConfirmedAt: data?.user?.email_confirmed_at,
+      },
+    });
+
+    if (signInError) {
+      // Unconfirmed emails often surface as "invalid login credentials" in Supabase
+      if (
+        errorCode === 'email_not_confirmed' ||
+        signInError.message.toLowerCase().includes('email not confirmed')
+      ) {
+        await supabase.auth.resend({ type: 'signup', email: normalizedEmail });
+        logAuthEvent('login', { email: normalizedEmail, resentConfirmation: true });
+      }
+      setError(mapLoginError(signInError.message, errorCode));
+      setLoading(false);
+      return;
+    }
+
+    if (!data.session) {
+      logAuthEvent('login', {
+        email: normalizedEmail,
+        warning: 'signIn succeeded but no session returned',
+      });
+      setError(mapLoginError('Email not confirmed', 'email_not_confirmed'));
+      setLoading(false);
+      return;
+    }
+
     window.location.href = redirect;
   };
 
   return (
     <AuthShell heading="Sign in to your workspace">
-      <p className="mb-4 rounded-xl border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-center text-xs text-violet-300">
-        Demo mode — any email and password will sign you in.
-      </p>
+      {DEMO_AUTH && (
+        <p className="mb-4 rounded-xl border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-center text-xs text-violet-300">
+          Demo mode — any email and password will sign you in.
+        </p>
+      )}
 
       {error && (
         <div className="mb-4">
@@ -51,9 +113,7 @@ export default function LoginForm() {
 
       <form onSubmit={handleLogin} className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="email" className="text-zinc-300">
-            Email
-          </Label>
+          <Label htmlFor="email" className="text-zinc-300">Email</Label>
           <Input
             id="email"
             type="email"
@@ -66,9 +126,14 @@ export default function LoginForm() {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="password" className="text-zinc-300">
-            Password
-          </Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password" className="text-zinc-300">Password</Label>
+            {!DEMO_AUTH && (
+              <Link href="/forgot-password" className="text-xs text-violet-400 hover:text-violet-300">
+                Forgot password?
+              </Link>
+            )}
+          </div>
           <Input
             id="password"
             type="password"
@@ -91,7 +156,7 @@ export default function LoginForm() {
         </Button>
       </form>
 
-      <div className="mt-6 space-y-3">
+      <div className="mt-6">
         <Link href="/signup" className="block">
           <Button
             type="button"

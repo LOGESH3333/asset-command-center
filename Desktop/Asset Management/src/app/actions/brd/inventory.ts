@@ -21,7 +21,7 @@ export async function createInventoryAction(input: {
   location?: string | null;
   notes?: string | null;
 }) {
-  const auth = await requireBrdRole(['Admin', 'Manager']);
+  const auth = await requireBrdRole(['Admin', 'Manager', 'Procurement']);
   if (auth.error) return { error: auth.error };
 
   if (!input.name?.trim()) return { error: 'Name is required.' };
@@ -74,7 +74,7 @@ export async function updateInventoryAction(
     notes: string | null;
   }>
 ) {
-  const auth = await requireBrdRole(['Admin', 'Manager']);
+  const auth = await requireBrdRole(['Admin', 'Manager', 'Procurement']);
   if (auth.error) return { error: auth.error };
 
   const { error } = await supabaseAdmin.from('inventory').update(input).eq('id', id);

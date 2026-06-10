@@ -22,7 +22,7 @@ export async function createPurchaseOrderAction(input: {
   expected_delivery?: string | null;
   notes?: string | null;
 }) {
-  const auth = await requireBrdRole(['Admin', 'Manager']);
+  const auth = await requireBrdRole(['Admin', 'Manager', 'Procurement']);
   if (auth.error) return { error: auth.error };
 
   if (!input.po_number?.trim()) return { error: 'PO number is required.' };
@@ -100,7 +100,7 @@ export async function updatePurchaseOrderAction(
     notes: string | null;
   }>
 ) {
-  const auth = await requireBrdRole(['Admin', 'Manager']);
+  const auth = await requireBrdRole(['Admin', 'Manager', 'Procurement']);
   if (auth.error) return { error: auth.error };
 
   const { error } = await supabaseAdmin.from('purchase_orders').update(input).eq('id', id);

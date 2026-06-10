@@ -16,6 +16,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Skeleton } from '@/components/common/Skeleton';
 import { PlusIcon, EyeIcon, FileText, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { ErrorAlert } from '@/components/common/ErrorAlert';
+import { ExportToolbar } from '@/components/enterprise/export-toolbar';
 import {
   WorkspaceHero,
   WorkspaceKpiGrid,
@@ -155,6 +156,12 @@ export default function RequestsPage() {
                   {REQUEST_STATUS_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                 </SelectContent>
               </Select>
+              <ExportToolbar filename={`requests-${new Date().toISOString().slice(0, 10)}`} title="Requests Export" rows={allRequests} columns={[
+                { header: 'Justification', accessor: (r) => r.justification },
+                { header: 'Status', accessor: (r) => r.status },
+                { header: 'Priority', accessor: (r) => r.priority },
+                { header: 'Created', accessor: (r) => r.created_at },
+              ]} />
             </div>
           }
           footer={!loading && requests.length > 0 ? <PaginationControls currentPage={page} totalPages={totalPages} totalItems={total} pageSize={PAGE_SIZE} onPageChange={setPage} /> : undefined}

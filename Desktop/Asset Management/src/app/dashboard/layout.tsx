@@ -1,10 +1,17 @@
 import { DashboardShell } from '@/components/layout/dashboard-shell';
+import { RouteAccessGuard } from '@/components/auth/route-access-guard';
+import { ErrorBoundary } from '@/components/common/error-boundary';
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Route protection is handled by middleware (demo_session cookie).
-  return <DashboardShell>{children}</DashboardShell>;
+  return (
+    <DashboardShell>
+      <ErrorBoundary fallbackTitle="Module error">
+        <RouteAccessGuard>{children}</RouteAccessGuard>
+      </ErrorBoundary>
+    </DashboardShell>
+  );
 }

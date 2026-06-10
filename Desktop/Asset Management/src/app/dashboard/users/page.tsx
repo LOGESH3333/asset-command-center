@@ -32,7 +32,7 @@ const PAGE_SIZE = 10;
 
 export default function UsersPage() {
   return (
-    <RoleGuard allowed={['Admin']}>
+    <RoleGuard allowed={['Admin', 'Manager']}>
       <UsersPageContent />
     </RoleGuard>
   );

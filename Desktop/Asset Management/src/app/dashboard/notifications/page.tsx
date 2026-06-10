@@ -1,13 +1,13 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import type { Notification } from '@/lib/supabase/notifications';
 import {
-  getNotifications,
-  markNotificationRead,
-  markAllNotificationsRead,
-  deleteNotification,
-  type Notification,
-} from '@/lib/supabase/notifications';
+  getNotificationsAction,
+  markNotificationReadAction,
+  markAllNotificationsReadAction,
+  deleteNotificationAction,
+} from '@/app/actions/notifications';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/common/Skeleton';
 import { ErrorAlert } from '@/components/common/ErrorAlert';
@@ -37,8 +37,8 @@ export default function NotificationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await getNotifications();
-      if (res.error) setError(res.error.message);
+      const res = await getNotificationsAction();
+      if (res.error) setError(res.error);
       else setNotifications(res.data);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load notifications.');
@@ -71,20 +71,20 @@ export default function NotificationsPage() {
   ].filter((d) => d.value > 0);
 
   const handleMarkRead = async (id: string) => {
-    const { error: readErr } = await markNotificationRead(id);
-    if (readErr) setError(readErr.message);
+    const { error: readErr } = await markNotificationReadAction(id);
+    if (readErr) setError(readErr);
     else setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
   };
 
   const handleMarkAllRead = async () => {
-    const { error: readErr } = await markAllNotificationsRead();
-    if (readErr) setError(readErr.message);
+    const { error: readErr } = await markAllNotificationsReadAction();
+    if (readErr) setError(readErr);
     else setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
   const handleDelete = async (id: string) => {
-    const { error: delErr } = await deleteNotification(id);
-    if (delErr) setError(delErr.message);
+    const { error: delErr } = await deleteNotificationAction(id);
+    if (delErr) setError(delErr);
     else setNotifications((prev) => prev.filter((n) => n.id !== id));
   };
 

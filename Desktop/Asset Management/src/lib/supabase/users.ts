@@ -53,5 +53,5 @@ export async function getUserByAuthId(authId: string) {
 }
 
 export async function getRoleEnumValues(): Promise<AppRole[]> {
-  return ['Admin', 'Manager', 'Employee'];
+  return ['Admin', 'Manager', 'Procurement', 'Finance', 'Employee'];
 }

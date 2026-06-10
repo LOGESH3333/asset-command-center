@@ -25,12 +25,16 @@ interface EnterpriseTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
   stickyHeader?: boolean;
+  mobileLabel?: (row: TData) => string;
+  mobileSubtitle?: (row: TData) => string | undefined;
 }
 
 export function EnterpriseTable<TData, TValue>({
   columns,
   data,
   stickyHeader = true,
+  mobileLabel,
+  mobileSubtitle,
 }: EnterpriseTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
@@ -47,7 +51,42 @@ export function EnterpriseTable<TData, TValue>({
 
   return (
     <div className="glass-panel dark:bm-card overflow-hidden rounded-2xl">
-      <div className="overflow-x-auto">
+      {/* Mobile card fallback */}
+      <div className="space-y-2 p-3 md:hidden">
+        {data.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">No results found.</p>
+        ) : (
+          data.map((row, i) => (
+            <div
+              key={i}
+              className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 transition-colors active:bg-violet-500/[0.06]"
+            >
+              <p className="font-medium text-white">
+                {mobileLabel ? mobileLabel(row) : `Record ${i + 1}`}
+              </p>
+              {mobileSubtitle?.(row) && (
+                <p className="mt-0.5 text-xs text-zinc-500">{mobileSubtitle(row)}</p>
+              )}
+              <div className="mt-3 space-y-2 border-t border-white/[0.04] pt-3">
+                {table.getRowModel().rows[i]?.getVisibleCells().slice(0, 4).map((cell) => (
+                  <div key={cell.id} className="flex justify-between gap-3 text-xs">
+                    <span className="text-zinc-500">
+                      {typeof cell.column.columnDef.header === 'string'
+                        ? cell.column.columnDef.header
+                        : cell.column.id}
+                    </span>
+                    <span className="max-w-[60%] truncate text-right text-zinc-300">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="hidden overflow-x-auto md:block">
         <Table>
           <TableHeader className={cn(stickyHeader && "sticky top-0 z-10")}>
             {table.getHeaderGroups().map((headerGroup) => (

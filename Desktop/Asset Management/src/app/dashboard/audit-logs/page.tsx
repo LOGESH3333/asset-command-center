@@ -27,6 +27,7 @@ import {
 } from '@/components/workspace/workspace-layout';
 import { WorkspaceDonutChart, WorkspaceAreaChart, WorkspaceProgressList } from '@/components/workspace/workspace-charts';
 import { AuditIntelligenceTimeline } from '@/components/workspace/audit-intelligence-center';
+import { ExportToolbar } from '@/components/enterprise/export-toolbar';
 import { countByField, groupByDay, percent, sparklineFromDates, trendFromSparkline } from '@/lib/workspace/insights';
 
 const PAGE_SIZE = 10;
@@ -160,6 +161,18 @@ export default function AuditLogsPage() {
                     <SelectItem value="users">Users</SelectItem>
                   </SelectContent>
                 </Select>
+                <ExportToolbar
+                  filename={`audit-logs-${new Date().toISOString().slice(0, 10)}`}
+                  title="Audit Trail Export"
+                  rows={logs}
+                  columns={[
+                    { header: 'When', accessor: (r) => new Date(r.created_at).toLocaleString() },
+                    { header: 'Action', accessor: (r) => r.action },
+                    { header: 'Module', accessor: (r) => r.table_name },
+                    { header: 'Summary', accessor: (r) => formatAuditLogSummary(r) },
+                    { header: 'Actor', accessor: (r) => formatPersonName(r.actor, 'System') },
+                  ]}
+                />
               </div>
             </div>
           }

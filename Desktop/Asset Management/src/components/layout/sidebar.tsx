@@ -26,12 +26,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { UserMenu } from "@/components/auth/user-menu";
 import { useAuth } from "@/components/auth/auth-provider";
-import {
-  canManageUsers,
-  canViewReports,
-  canManageApprovals,
-  canManageProcurement,
-} from "@/lib/auth/roles";
+import { isNavVisible } from "@/lib/auth/permissions";
 
 type NavItem = {
   href: string;
@@ -101,19 +96,7 @@ function filterNavSections(role: ReturnType<typeof useAuth>["role"]) {
   return navSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => {
-        if (item.href === "/dashboard/users") return canManageUsers(role);
-        if (item.href === "/dashboard/settings") return canManageUsers(role);
-        if (item.href === "/dashboard/reports") return canViewReports(role);
-        if (item.href === "/dashboard/approvals") return canManageApprovals(role);
-        if (
-          item.href === "/dashboard/procurement" ||
-          item.href === "/dashboard/purchase-orders"
-        ) {
-          return canManageProcurement(role);
-        }
-        return true;
-      }),
+      items: section.items.filter((item) => isNavVisible(role, item.href)),
     }))
     .filter((section) => section.items.length > 0);
 }

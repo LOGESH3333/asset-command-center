@@ -31,6 +31,7 @@ import { PlusIcon, EyeIcon, AlertTriangleIcon, Package, DollarSign, MapPin, Tren
 import { useAuth } from '@/components/auth/auth-provider';
 import { canManageInventory } from '@/lib/auth/roles';
 import { cn } from '@/lib/utils';
+import { ExportToolbar } from '@/components/enterprise/export-toolbar';
 
 const PAGE_SIZE = 10;
 
@@ -175,7 +176,24 @@ export default function InventoryPage() {
 
       <WorkspaceSection title="Stock Registry" subtitle={`${total} items · ${percent(lowStock, allItems.length || 1)}% below reorder`}>
         <WorkspaceDataPanel
-          toolbar={<SearchInput placeholder="Search by name or SKU…" onSearch={(t) => { setSearch(t); setPage(1); }} />}
+          toolbar={
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="flex-1"><SearchInput placeholder="Search by name or SKU…" onSearch={(t) => { setSearch(t); setPage(1); }} /></div>
+              <ExportToolbar
+                filename={`inventory-${new Date().toISOString().slice(0, 10)}`}
+                title="Inventory Export"
+                rows={allItems}
+                columns={[
+                  { header: 'Name', accessor: (r) => r.name },
+                  { header: 'SKU', accessor: (r) => r.sku },
+                  { header: 'Qty', accessor: (r) => r.quantity_on_hand },
+                  { header: 'Reorder', accessor: (r) => r.reorder_level },
+                  { header: 'Unit Cost', accessor: (r) => r.unit_cost },
+                  { header: 'Location', accessor: (r) => r.location },
+                ]}
+              />
+            </div>
+          }
           footer={!loading && rows.length > 0 ? (
             <PaginationControls currentPage={page} totalPages={totalPages} totalItems={total} pageSize={PAGE_SIZE} onPageChange={setPage} />
           ) : undefined}

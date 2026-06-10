@@ -46,8 +46,9 @@ export async function bootstrapRequestWorkflow(requestId: string) {
   if (error) return { error: formatAuditTriggerDbError(error.message) };
 
   await createBrdNotification({
-    title: 'Manager approval required',
+    title: 'Request Submitted',
     message: 'A new asset request is awaiting manager approval.',
+    eventType: 'request_submitted',
   });
 
   return { success: true, id: data?.id };
@@ -83,7 +84,7 @@ export async function createApprovalAction(input: {
   approval_stage: ApprovalStage;
   comments?: string | null;
 }) {
-  const auth = await requireBrdRole(['Admin', 'Manager']);
+  const auth = await requireBrdRole(['Admin', 'Manager', 'Finance']);
   if (auth.error) return { error: auth.error };
 
   if (!input.request_id) return { error: 'Request is required.' };
@@ -141,7 +142,7 @@ export async function decideApprovalAction(
   decision: 'Approved' | 'Rejected',
   comments?: string | null
 ) {
-  const auth = await requireBrdRole(['Admin', 'Manager']);
+  const auth = await requireBrdRole(['Admin', 'Manager', 'Finance']);
   if (auth.error) return { error: auth.error };
 
   const { data: approval, error: fetchErr } = await supabaseAdmin

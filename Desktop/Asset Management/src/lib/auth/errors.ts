@@ -1,7 +1,15 @@
 /** Map Supabase auth errors to user-friendly messages (no technical details). */
 
-export function mapLoginError(message: string): string {
+export function mapLoginError(message: string, code?: string): string {
   const msg = message.toLowerCase();
+
+  if (
+    code === 'email_not_confirmed' ||
+    msg.includes('email not confirmed') ||
+    msg.includes('email_not_confirmed')
+  ) {
+    return 'Login failed. Please try again or contact your administrator.';
+  }
 
   if (
     msg.includes('invalid login credentials') ||
@@ -9,10 +17,6 @@ export function mapLoginError(message: string): string {
     msg.includes('invalid credentials')
   ) {
     return 'Invalid email or password.';
-  }
-
-  if (msg.includes('email not confirmed')) {
-    return 'Login failed. Please try again or contact your administrator.';
   }
 
   return 'Login failed. Please check your credentials and try again.';

@@ -20,7 +20,7 @@ export async function createProcurementAction(input: {
   estimated_cost?: number | null;
   notes?: string | null;
 }) {
-  const auth = await requireBrdRole(['Admin', 'Manager']);
+  const auth = await requireBrdRole(['Admin', 'Manager', 'Procurement']);
   if (auth.error) return { error: auth.error };
 
   if (!input.title?.trim()) return { error: 'Title is required.' };
@@ -83,7 +83,7 @@ export async function updateProcurementAction(
     notes: string | null;
   }>
 ) {
-  const auth = await requireBrdRole(['Admin', 'Manager']);
+  const auth = await requireBrdRole(['Admin', 'Manager', 'Procurement']);
   if (auth.error) return { error: auth.error };
 
   const { error } = await supabaseAdmin.from('procurements').update(input).eq('id', id);
