@@ -123,7 +123,7 @@ async function ensureUserProfileByEmailOnly(
     const { data: updated, error: updateError } = await supabaseAdmin
       .from('users')
       .update({
-        role: dbRole,
+        ...(input.roleOverride ? { role: dbRole } : {}),
         first_name: byEmail.first_name || input.first_name || email.split('@')[0],
         last_name: byEmail.last_name || input.last_name || '',
         updated_at: new Date().toISOString(),
@@ -277,7 +277,9 @@ export async function ensureUserProfile(
     return { profile: null, error: formatProfileDatabaseError('ensureUserProfile.lookupByEmail', byEmailError) };
   }
 
-  const appRole = input.roleOverride ?? (await resolveDefaultRoleForNewUser(email));
+  const appRole =
+    input.roleOverride ??
+    (isAppRole(byEmail?.role as string) ? (byEmail!.role as AppRole) : await resolveDefaultRoleForNewUser(email));
 
   if (byEmail) {
     const { data: linked, error: linkError } = await supabaseAdmin
@@ -288,7 +290,7 @@ export async function ensureUserProfile(
         first_name: byEmail.first_name || input.first_name || email.split('@')[0],
         last_name: byEmail.last_name || input.last_name || '',
         department: byEmail.department ?? input.department ?? null,
-        role: roleForDatabase(appRole),
+        ...(input.roleOverride ? { role: roleForDatabase(appRole) } : {}),
         updated_at: new Date().toISOString(),
       })
       .eq('id', byEmail.id)

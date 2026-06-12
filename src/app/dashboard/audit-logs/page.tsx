@@ -53,7 +53,7 @@ export default function AuditLogsPage() {
       .select('id, action, table_name, user_id, created_at, actor:users!user_id(id)')
       .order('created_at', { ascending: false })
       .limit(300)
-      .then(({ data }: { data: AuditMetric[] | null }) => {
+      .then(({ data }) => {
         setAllLogs((data as AuditMetric[]) ?? []);
         setMetricsLoading(false);
       });

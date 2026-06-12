@@ -55,7 +55,7 @@ export default function MaintenancePage() {
   const [dialogOpen, setDialogOpen] = useState(false);
 
   useEffect(() => {
-    supabase.from('maintenance_records').select('id, type, cost, scheduled_date, completed_date, created_at').limit(500).then(({ data }: { data: MaintenanceRecord[] | null }) => {
+    supabase.from('maintenance_records').select('id, type, cost, scheduled_date, completed_date, created_at').limit(500).then(({ data }) => {
       setAllRecords((data as MaintenanceRecord[]) ?? []);
       setMetricsLoading(false);
     });

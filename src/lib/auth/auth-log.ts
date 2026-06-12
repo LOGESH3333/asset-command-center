@@ -22,14 +22,71 @@ export type AuthLogPhase =
   | 'profile-sync';
 
 export function logAuthEvent(phase: AuthLogPhase, payload: AuthLogPayload) {
-  const debug = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_AUTH_DEBUG === 'true';
-  if (!debug) return;
+  const verbose = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_AUTH_DEBUG === 'true';
+  const isFailure =
+    payload.error != null ||
+    payload.step === 'FAILED' ||
+    String(payload.step ?? '').includes('FAILED') ||
+    String(payload.code ?? '').includes('failed');
 
-  console.log(`[auth:${phase}]`, {
+  if (!verbose && !isFailure) return;
+
+  const line = {
     projectRef: getAuthProjectRef(),
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
     ...payload,
-  });
+  };
+
+  if (isFailure) {
+    console.error(`[auth:${phase}]`, line);
+    return;
+  }
+
+  console.log(`[auth:${phase}]`, line);
+}
+
+/** Production-safe login audit — never logs passwords. */
+export function logLoginAudit(
+  event: 'attempt' | 'auth_success' | 'auth_failure' | 'role_lookup' | 'login_complete',
+  payload: {
+    email: string;
+    loginId?: string;
+    authId?: string | null;
+    role?: string | null;
+    status?: string | null;
+    reason?: string | null;
+    step?: string | null;
+  }
+) {
+  const line = {
+    event,
+    email: normalizeAuthEmail(payload.email),
+    loginId: payload.loginId ?? null,
+    authId: payload.authId ?? null,
+    role: payload.role ?? null,
+    status: payload.status ?? null,
+    reason: payload.reason != null ? String(payload.reason) : null,
+    step: payload.step ?? null,
+    projectRef: getAuthProjectRef() ?? null,
+  };
+
+  const summary = [
+    `[auth:login-audit] ${event}`,
+    line.email,
+    line.step ? `step=${line.step}` : null,
+    line.reason ? `reason=${line.reason}` : null,
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
+  // Expected login failures (bad password, blocked user) are not app errors — avoid
+  // console.error so Next.js dev overlay does not surface them as runtime exceptions.
+  if (event === 'auth_failure') {
+    console.warn(summary);
+    return;
+  }
+
+  console.log(summary, line);
 }
 
 type AuthErrorLike = {

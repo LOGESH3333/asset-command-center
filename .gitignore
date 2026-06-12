@@ -20,6 +20,9 @@
 # production
 /build
 
+# accidental nested copy of this repo (breaks Vercel/TS builds)
+/Desktop/
+
 # misc
 .DS_Store
 *.pem

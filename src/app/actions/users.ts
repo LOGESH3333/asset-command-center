@@ -10,6 +10,8 @@ import type { AppRole } from '@/lib/auth/roles';
 import { ensureUserProfile } from '@/lib/auth/user-profile-sync';
 import { logAuthEvent, serializeAuthError } from '@/lib/auth/auth-log';
 import { roleForDatabase } from '@/lib/auth/role-db';
+import { generateTemporaryPassword } from '@/lib/auth/temporary-password';
+import { getPasswordResetRedirectUrl } from '@/lib/auth/site-url';
 import {
   type DeleteActionResponse,
   type DeleteBlockingInfo,
@@ -404,65 +406,36 @@ function explainCreateUserAuthError(message: string, diagnostics: CreateUserSche
   return message;
 }
 
-async function ensureLegacyClerkProfilePlaceholder(input: {
-  email: string;
-  first_name: string;
-  last_name: string;
-  department?: string;
-  role: AppRole;
-}): Promise<{ profileId?: string; created: boolean; error?: string }> {
-  const { data: existing, error: existingError } = await supabaseAdmin
+async function applyLegacyClerkIdIfRequired(
+  profileId: string,
+  diagnostics: CreateUserSchemaDiagnostics
+): Promise<{ error?: string }> {
+  if (diagnostics.clerkIdColumn !== 'present') return {};
+
+  const { error } = await supabaseAdmin
     .from('users')
-    .select('id, auth_id')
-    .eq('email', input.email)
-    .maybeSingle();
+    .update({
+      clerk_id: `user_supabase_${globalThis.crypto.randomUUID().replaceAll('-', '')}`,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', profileId);
 
-  if (existingError) {
-    return { created: false, error: describeSupabaseError(existingError) };
+  if (error) {
+    return { error: describeSupabaseError(error) };
   }
 
-  const legacyPayload: Record<string, unknown> = {
-    email: input.email,
-    first_name: input.first_name,
-    last_name: input.last_name,
-    department: input.department ?? null,
-    role: roleForDatabase(input.role),
-    status: 'Active',
-    clerk_id: `user_supabase_${globalThis.crypto.randomUUID().replaceAll('-', '')}`,
-    updated_at: new Date().toISOString(),
-  };
+  return {};
+}
 
-  if (existing) {
-    if (existing.auth_id) {
-      return {
-        created: false,
-        error: `message: public.users already has auth_id for ${input.email} | code: profile_exists | details: Existing profile id ${existing.id} is already linked to auth.users | hint: Delete or fix the stale profile before creating this email again`,
-      };
-    }
-
-    const { error: updateError } = await supabaseAdmin
-      .from('users')
-      .update(legacyPayload)
-      .eq('id', existing.id);
-
-    if (updateError) {
-      return { created: false, error: describeSupabaseError(updateError) };
-    }
-
-    return { profileId: existing.id, created: false };
+async function rollbackCreatedAuthUser(authId: string, email: string) {
+  try {
+    await supabaseAdmin.auth.admin.deleteUser(authId);
+  } catch (err) {
+    console.error('[createUser] rollback auth delete failed', { authId, email, err });
   }
 
-  const { data: inserted, error: insertError } = await supabaseAdmin
-    .from('users')
-    .insert(legacyPayload)
-    .select('id')
-    .single();
-
-  if (insertError) {
-    return { created: false, error: describeSupabaseError(insertError) };
-  }
-
-  return { profileId: inserted?.id, created: true };
+  await supabaseAdmin.from('users').delete().eq('auth_id', authId);
+  await supabaseAdmin.from('users').delete().eq('email', email).is('auth_id', null);
 }
 
 export type SyncedUser = {
@@ -547,53 +520,46 @@ export async function createUserAction(formData: {
   first_name: string;
   last_name: string;
   email: string;
-  password: string;
+  password?: string;
   department?: string;
   role?: AppRole;
+  /** When true, email a password setup link instead of returning the password in the UI. */
+  sendSetupEmail?: boolean;
 }) {
+  let createdAuthId: string | null = null;
+
   try {
     await requireUserAdmin();
-    const { first_name, last_name, email, password, department, role } = formData;
+    const { first_name, last_name, email, department, role, sendSetupEmail } = formData;
     const normalizedEmail = email.trim().toLowerCase();
     const requestedRole = role ?? 'Employee';
+    const temporaryPassword = formData.password?.trim() || generateTemporaryPassword();
+
+    if (temporaryPassword.length < 8) {
+      return { error: 'Password must be at least 8 characters.' };
+    }
 
     const schemaDiagnostics = await probeUsersSchemaForCreate();
-    console.log('STEP 0 CREATE USER PREFLIGHT STARTED', {
-      email: normalizedEmail,
-      role: requestedRole,
-    });
-    console.error('STEP 0 CREATE USER PREFLIGHT SCHEMA DIAGNOSTICS', {
-      email: normalizedEmail,
-      role: requestedRole,
-      schemaDiagnostics,
-    });
 
-    const legacyPlaceholder =
-      schemaDiagnostics.clerkIdColumn === 'present'
-        ? await ensureLegacyClerkProfilePlaceholder({
-            email: normalizedEmail,
-            first_name,
-            last_name,
-            department,
-            role: requestedRole,
-          })
-        : null;
+    const { data: existingProfile, error: existingProfileError } = await supabaseAdmin
+      .from('users')
+      .select('id, auth_id, email')
+      .eq('email', normalizedEmail)
+      .maybeSingle();
 
-    console.error('STEP 0B LEGACY CLERK PROFILE PLACEHOLDER RESPONSE', {
-      email: normalizedEmail,
-      required: schemaDiagnostics.clerkIdColumn === 'present',
-      profileId: legacyPlaceholder?.profileId ?? null,
-      created: legacyPlaceholder?.created ?? false,
-      error: legacyPlaceholder?.error ?? null,
-    });
+    if (existingProfileError) {
+      return { error: describeSupabaseError(existingProfileError) };
+    }
 
-    if (legacyPlaceholder?.error) {
-      throw new Error(`Unable to prepare legacy public.users profile before Supabase Auth createUser. ${legacyPlaceholder.error}`);
+    if (existingProfile?.auth_id) {
+      return {
+        error: `A profile for ${normalizedEmail} is already linked to Supabase Auth. Use User Management to reset access instead of creating a duplicate.`,
+      };
     }
 
     const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email: normalizedEmail,
-      password,
+      password: temporaryPassword,
       email_confirm: true,
       user_metadata: {
         first_name,
@@ -603,43 +569,19 @@ export async function createUserAction(formData: {
       },
     });
 
-    console.error('STEP 1 AUTH USER CREATED RESPONSE', {
-      email: normalizedEmail,
-      authUserId: authUser.user?.id ?? null,
-      authUserEmail: authUser.user?.email ?? null,
-      error: serializeAuthError(authError),
-      rawError: authError,
-    });
-
-    if (authError) {
-      if (legacyPlaceholder?.created && legacyPlaceholder.profileId) {
-        const { error: cleanupError } = await supabaseAdmin
-          .from('users')
-          .delete()
-          .eq('id', legacyPlaceholder.profileId)
-          .is('auth_id', null);
-
-        if (cleanupError) {
-          console.error('STEP 1B LEGACY PROFILE CLEANUP FAILED', {
-            email: normalizedEmail,
-            profileId: legacyPlaceholder.profileId,
-            error: cleanupError,
-          });
-        }
-      }
-      throw new Error(explainCreateUserAuthError(describeSupabaseError(authError), schemaDiagnostics));
+    if (authError || !authUser.user?.id) {
+      return {
+        error: explainCreateUserAuthError(
+          describeSupabaseError(authError ?? { message: 'Supabase Auth created no user id.' }),
+          schemaDiagnostics
+        ),
+      };
     }
 
-    if (!authUser.user?.id) {
-      throw new Error('Supabase Auth created no user id.');
-    }
-    console.log('STEP 1 AUTH USER CREATED', {
-      email: normalizedEmail,
-      authId: authUser.user.id,
-    });
+    createdAuthId = authUser.user.id;
 
     const { profile, error: profileError } = await ensureUserProfile({
-      authId: authUser.user.id,
+      authId: createdAuthId,
       email: normalizedEmail,
       first_name,
       last_name,
@@ -647,47 +589,92 @@ export async function createUserAction(formData: {
       roleOverride: requestedRole,
     });
 
-    console.error('STEP 2 PUBLIC PROFILE CREATED RESPONSE', {
-      email: normalizedEmail,
-      authId: authUser.user.id,
-      profileId: profile?.id ?? null,
-      role: profile?.role ?? null,
-      error: profileError ?? null,
-    });
-
     if (profileError || !profile) {
-      throw new Error(profileError ?? 'Unable to create user profile.');
+      await rollbackCreatedAuthUser(createdAuthId, normalizedEmail);
+      createdAuthId = null;
+      return { error: profileError ?? 'Unable to create public.users profile after auth user creation.' };
     }
-    console.log('STEP 2 PROFILE CREATED', {
-      email: normalizedEmail,
-      authId: authUser.user.id,
-      profileId: profile.id,
-    });
-    console.log('STEP 3 ROLE ASSIGNED', {
-      email: normalizedEmail,
-      role: profile.role,
-      requestedRole,
-    });
+
+    const clerkPatch = await applyLegacyClerkIdIfRequired(profile.id, schemaDiagnostics);
+    if (clerkPatch.error) {
+      await rollbackCreatedAuthUser(createdAuthId, normalizedEmail);
+      createdAuthId = null;
+      return { error: clerkPatch.error };
+    }
+
+    const now = new Date().toISOString();
+    const { data: finalized, error: finalizeError } = await supabaseAdmin
+      .from('users')
+      .update({
+        auth_id: createdAuthId,
+        email: normalizedEmail,
+        first_name,
+        last_name,
+        department: department ?? null,
+        role: roleForDatabase(requestedRole),
+        status: 'Active',
+        updated_at: now,
+      })
+      .eq('id', profile.id)
+      .select()
+      .single();
+
+    if (finalizeError || !finalized) {
+      await rollbackCreatedAuthUser(createdAuthId, normalizedEmail);
+      createdAuthId = null;
+      return {
+        error: finalizeError
+          ? describeSupabaseError(finalizeError)
+          : 'Failed to finalize public.users profile after auth user creation.',
+      };
+    }
+
+    if (!finalized.auth_id || finalized.auth_id !== createdAuthId) {
+      await rollbackCreatedAuthUser(createdAuthId, normalizedEmail);
+      createdAuthId = null;
+      return { error: 'public.users.auth_id was not linked to the new Supabase Auth user.' };
+    }
+
+    let setupLink: string | undefined;
+    if (sendSetupEmail) {
+      const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+        type: 'recovery',
+        email: normalizedEmail,
+        options: { redirectTo: getPasswordResetRedirectUrl() },
+      });
+
+      if (linkError) {
+        await rollbackCreatedAuthUser(createdAuthId, normalizedEmail);
+        createdAuthId = null;
+        return { error: describeSupabaseError(linkError) };
+      }
+
+      setupLink = linkData.properties?.action_link;
+    }
 
     await logAuthAuditEvent('User Created', {
-      record_id: profile.id,
-      user_id: profile.id,
+      record_id: finalized.id,
+      user_id: finalized.id,
       email: normalizedEmail,
       role: requestedRole,
-    });
-    console.log('STEP 4 INVITATION SKIPPED', {
-      email: normalizedEmail,
-      reason: 'Direct Create User flow sets an initial password and does not create a user_invitations row.',
+      auth_id: createdAuthId,
     });
 
     revalidatePath('/dashboard/users');
-    return { data: profile };
+    revalidatePath('/dashboard/user-management');
+
+    return {
+      data: finalized as SyncedUser,
+      authUserId: createdAuthId,
+      temporaryPassword: sendSetupEmail ? undefined : temporaryPassword,
+      setupLink,
+    };
   } catch (err) {
+    if (createdAuthId) {
+      await rollbackCreatedAuthUser(createdAuthId, formData.email.trim().toLowerCase());
+    }
     const formatted = formatCaughtError(err);
-    console.error('STEP CREATE USER FAILED', {
-      error: err,
-      formatted,
-    });
+    console.error('[createUser] failed', { error: err, formatted });
     return { error: formatted };
   }
 }

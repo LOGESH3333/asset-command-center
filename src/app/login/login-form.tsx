@@ -8,6 +8,7 @@ import { createDemoSession, saveDemoSession } from '@/lib/auth/demo-session';
 import { postLoginAction } from '@/app/actions/auth';
 import {
   logAuthEvent,
+  logLoginAudit,
   logLoginStep,
   normalizeAuthEmail,
   serializeAuthError,
@@ -66,6 +67,7 @@ export default function LoginForm() {
 
     const supabase = createClient();
 
+    logLoginAudit('attempt', { email: normalizedEmail, loginId });
     logAuthEvent('login', {
       email: normalizedEmail,
       provider: 'supabase-signInWithPassword',
@@ -121,6 +123,12 @@ export default function LoginForm() {
     });
 
     if (signInError) {
+      logLoginAudit('auth_failure', {
+        email: normalizedEmail,
+        loginId,
+        step: 'signInWithPassword',
+        reason: signInError.message,
+      });
       // Unconfirmed emails often surface as "invalid login credentials" in Supabase
       if (
         errorCode === 'email_not_confirmed' ||
@@ -149,22 +157,37 @@ export default function LoginForm() {
     }
 
     try {
+      await supabase.auth.getSession();
+
       logLoginStep(loginId, 'postLoginAction', 'START', {
         email: normalizedEmail,
         authId: data.user.id,
       });
       const postLogin = await postLoginAction(data.user.id, normalizedEmail, loginId);
-      logLoginStep(loginId, 'postLoginAction', 'SUCCESS', {
-        email: normalizedEmail,
-        authId: data.user.id,
-        response: postLogin,
-      });
       if (postLogin.error) {
+        logLoginAudit('auth_failure', {
+          email: normalizedEmail,
+          loginId,
+          authId: data.user.id,
+          step: 'postLoginAction',
+          reason: postLogin.error,
+        });
         logLoginStep(loginId, 'postLoginAction', 'FAILED', postLogin.error);
         setError(postLogin.error);
         setLoading(false);
         return;
       }
+      logLoginStep(loginId, 'postLoginAction', 'SUCCESS', {
+        email: normalizedEmail,
+        authId: data.user.id,
+        response: postLogin,
+      });
+      logLoginAudit('login_complete', {
+        email: normalizedEmail,
+        loginId,
+        authId: data.user.id,
+        role: 'role' in postLogin ? (postLogin.role as string | null) : null,
+      });
       logLoginStep(loginId, 'redirect', 'START', {
         target: postLogin.redirect ?? redirect,
       });

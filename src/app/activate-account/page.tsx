@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { activateAccountAction, getInvitationByTokenAction } from '@/app/actions/invitations';
+import { activateInvitedProfileAction } from '@/app/actions/auth';
 import { AuthShell } from '@/components/auth/auth-shell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -107,10 +108,17 @@ function ActivateAccountForm() {
 
     const supabase = createClient();
     const { error: updateError } = await supabase.auth.updateUser({ password });
+    if (updateError) {
+      setLoading(false);
+      setError(updateError.message);
+      return;
+    }
+
+    const activation = await activateInvitedProfileAction();
     setLoading(false);
 
-    if (updateError) {
-      setError(updateError.message);
+    if (activation.error) {
+      setError(activation.error);
       return;
     }
 

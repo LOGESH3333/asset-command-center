@@ -3,7 +3,16 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { parseDemoSessionCookie, DEMO_SESSION_COOKIE } from '@/lib/auth/demo-session';
 import { isAuthSessionMissingError, logLoginStep, serializeAuthError } from '@/lib/auth/auth-log';
 
-const AUTH_ROUTES = ['/login', '/signup', '/forgot-password', '/reset-password', '/activate-account'];
+const AUTH_ROUTES = [
+  '/login',
+  '/signup',
+  '/forgot-password',
+  '/reset-password',
+  '/auth/reset-password',
+  '/activate-account',
+];
+
+const PASSWORD_RESET_ROUTES = ['/reset-password', '/auth/reset-password'];
 const LOGIN_ID_COOKIE = 'login_attempt_id';
 
 function getLoginId(request: NextRequest) {
@@ -12,6 +21,10 @@ function getLoginId(request: NextRequest) {
 
 function isAuthRoute(pathname: string) {
   return AUTH_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
+}
+
+function isPasswordResetRoute(pathname: string) {
+  return PASSWORD_RESET_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
 }
 
 function isPublicRoute(pathname: string) {
@@ -124,7 +137,13 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (authenticated && isAuthRoute(pathname) && user && !isServerActionLikeRequest) {
+  if (
+    authenticated &&
+    isAuthRoute(pathname) &&
+    user &&
+    !isServerActionLikeRequest &&
+    !isPasswordResetRoute(pathname)
+  ) {
     console.log('[middleware] redirect authenticated auth-route GET to dashboard', {
       pathname,
       method: request.method,

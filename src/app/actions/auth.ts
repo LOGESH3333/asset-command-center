@@ -3,7 +3,13 @@
 import { createClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { getSessionUser } from '@/lib/auth/session';
-import { logAuthEvent, logLoginStep, normalizeAuthEmail, serializeAuthError } from '@/lib/auth/auth-log';
+import {
+  logAuthEvent,
+  logLoginAudit,
+  logLoginStep,
+  normalizeAuthEmail,
+  serializeAuthError,
+} from '@/lib/auth/auth-log';
 import { mapSignupError } from '@/lib/auth/errors';
 import { ensureUserProfile } from '@/lib/auth/user-profile-sync';
 import { isSuperAdmin, canManageUsers } from '@/lib/auth/roles';
@@ -64,20 +70,50 @@ export async function signOutAction() {
   return { success: true };
 }
 
+async function waitForServerSession(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  expectedAuthId: string,
+  loginId: string,
+  email: string,
+  maxAttempts = 4
+) {
+  let lastResponse: Awaited<ReturnType<typeof supabase.auth.getUser>> | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    logLoginStep(loginId, 'getUser', 'START', { authId: expectedAuthId, email, attempt });
+    lastResponse = await supabase.auth.getUser();
+    const userId = lastResponse.data.user?.id ?? null;
+
+    logLoginStep(loginId, 'getUser', userId === expectedAuthId ? 'SUCCESS' : 'FAILED', {
+      authId: expectedAuthId,
+      email,
+      attempt,
+      userId,
+      error: serializeAuthError(lastResponse.error),
+    });
+
+    if (!lastResponse.error && userId === expectedAuthId) {
+      return lastResponse;
+    }
+
+    if (attempt < maxAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, 120 * attempt));
+    }
+  }
+
+  return lastResponse!;
+}
+
 export async function postLoginAction(authId: string, email: string, loginId = 'server-login-unknown') {
+  const normalizedEmail = email.trim().toLowerCase();
+
   try {
-    logLoginStep(loginId, 'postLoginAction', 'START', { authId, email });
+    logLoginAudit('attempt', { email: normalizedEmail, loginId, authId });
+    logLoginStep(loginId, 'postLoginAction', 'START', { authId, email: normalizedEmail });
     const supabase = await createClient();
     let currentUserResponse: Awaited<ReturnType<typeof supabase.auth.getUser>>;
     try {
-      logLoginStep(loginId, 'getUser', 'START', { authId, email });
-      currentUserResponse = await supabase.auth.getUser();
-      logLoginStep(loginId, 'getUser', 'SUCCESS', {
-        authId,
-        email,
-        userId: currentUserResponse.data.user?.id ?? null,
-        error: serializeAuthError(currentUserResponse.error),
-      });
+      currentUserResponse = await waitForServerSession(supabase, authId, loginId, normalizedEmail);
     } catch (err) {
       logLoginStep(loginId, 'getUser', 'FAILED', {
         email,
@@ -95,13 +131,20 @@ export async function postLoginAction(authId: string, email: string, loginId = '
 
     logAuthEvent('login', {
       step: 'getCurrentUser',
-      email,
+      email: normalizedEmail,
       authId,
       sessionUserId: user?.id ?? null,
       error: serializeAuthError(sessionError),
     });
 
     if (sessionError) {
+      logLoginAudit('auth_failure', {
+        email: normalizedEmail,
+        loginId,
+        authId,
+        step: 'getCurrentUser',
+        reason: sessionError.message,
+      });
       logLoginStep(loginId, 'getUser', 'FAILED', {
         error: sessionError,
         stack: sessionError.stack,
@@ -110,13 +153,21 @@ export async function postLoginAction(authId: string, email: string, loginId = '
     }
 
     if (!user || user.id !== authId) {
+      const reason = `Session user mismatch. Expected ${authId}, received ${user?.id ?? 'none'}.`;
+      logLoginAudit('auth_failure', {
+        email: normalizedEmail,
+        loginId,
+        authId,
+        step: 'session_user_mismatch',
+        reason,
+      });
       logLoginStep(loginId, 'getUser', 'FAILED', {
-        message: `Session user mismatch. Expected ${authId}, received ${user?.id ?? 'none'}.`,
+        message: reason,
         code: 'session_user_mismatch',
       });
       return {
         error: formatAuthFlowError('getCurrentUser.sessionIdentity', {
-          message: `Session user mismatch. Expected ${authId}, received ${user?.id ?? 'none'}.`,
+          message: reason,
           code: 'session_user_mismatch',
           status: 401,
           name: 'SessionIdentityError',
@@ -124,7 +175,7 @@ export async function postLoginAction(authId: string, email: string, loginId = '
       };
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
+    logLoginAudit('auth_success', { email: normalizedEmail, loginId, authId });
     let ensuredProfile: Awaited<ReturnType<typeof ensureUserProfile>>;
     try {
       logLoginStep(loginId, 'ensureUserProfile', 'START', {
@@ -303,6 +354,13 @@ export async function postLoginAction(authId: string, email: string, loginId = '
       status: userRow.status ?? null,
       profileId: userRow.id ?? null,
     });
+    logLoginAudit('role_lookup', {
+      email: normalizedEmail,
+      loginId,
+      authId,
+      role: userRow.role ?? null,
+      status: userRow.status ?? null,
+    });
 
     if (!userRow.role) {
       logLoginStep(loginId, 'role lookup', 'FAILED', {
@@ -360,21 +418,43 @@ export async function postLoginAction(authId: string, email: string, loginId = '
     });
 
     if (userRow?.status === 'Invited') {
-      logLoginStep(loginId, 'dashboard route selection', 'START', {
+      const now = new Date().toISOString();
+      logLoginStep(loginId, 'status activation', 'START', {
         authId,
         email: normalizedEmail,
+        profileId: userRow.id ?? null,
       });
-      logLoginStep(loginId, 'dashboard route selection', 'SUCCESS', {
+
+      const { error: activateError } = await supabaseAdmin
+        .from('users')
+        .update({ status: 'Active', updated_at: now })
+        .eq('id', userRow.id!);
+
+      if (activateError) {
+        logLoginStep(loginId, 'status activation', 'FAILED', { error: activateError });
+        return {
+          error: formatDatabaseFlowError('postLogin.activateInvitedUser', activateError),
+        };
+      }
+
+      await supabaseAdmin
+        .from('user_invitations')
+        .update({ accepted_at: now })
+        .eq('email', normalizedEmail)
+        .is('accepted_at', null);
+
+      userRow.status = 'Active';
+      logLoginStep(loginId, 'status activation', 'SUCCESS', {
         authId,
         email: normalizedEmail,
-        redirect: '/activate-account',
+        profileId: userRow.id ?? null,
       });
       logAuthEvent('login', {
-        step: 'postLogin.redirect',
+        step: 'postLogin.activateInvitedUser',
         email: normalizedEmail,
-        redirect: '/activate-account',
+        authId,
+        profileId: userRow.id,
       });
-      return { redirect: '/activate-account' };
     }
 
     const { recordLoginAction } = await import('@/app/actions/user-management');
@@ -413,7 +493,14 @@ export async function postLoginAction(authId: string, email: string, loginId = '
       email: normalizedEmail,
       redirect: '/dashboard',
     });
-    return { success: true };
+    logLoginAudit('login_complete', {
+      email: normalizedEmail,
+      loginId,
+      authId,
+      role: userRow.role ?? null,
+      status: userRow.status ?? null,
+    });
+    return { success: true, role: userRow.role ?? null, redirect: '/dashboard' };
   } catch (err) {
     logLoginStep(loginId, 'postLoginAction', 'FAILED', {
       error: err,
@@ -421,6 +508,151 @@ export async function postLoginAction(authId: string, email: string, loginId = '
     });
     throw err;
   }
+}
+
+/** Promote an Invited public.users row to Active after password setup or successful sign-in. */
+export async function activateInvitedProfileAction(): Promise<{
+  success?: boolean;
+  error?: string;
+}> {
+  const { user, profile } = await getSessionUser();
+  if (!user) return { error: 'Not authenticated' };
+  if (!profile) return { error: 'No user profile found.' };
+  if (profile.status !== 'Invited') return { success: true };
+
+  const now = new Date().toISOString();
+  const { error } = await supabaseAdmin
+    .from('users')
+    .update({ status: 'Active', updated_at: now })
+    .eq('id', profile.id);
+
+  if (error) {
+    return { error: formatDatabaseFlowError('activateInvitedProfile', error) };
+  }
+
+  await supabaseAdmin
+    .from('user_invitations')
+    .update({ accepted_at: now })
+    .eq('email', profile.email.trim().toLowerCase())
+    .is('accepted_at', null);
+
+  return { success: true };
+}
+
+/** Super Admin diagnostic — auth.users vs public.users linkage (no passwords). */
+export async function auditAuthHealthAction(): Promise<{
+  data?: {
+    authUserCount: number;
+    profileCount: number;
+    issueCount: number;
+    issues: Array<{
+      type: string;
+      email: string | null;
+      authId?: string | null;
+      profileId?: string | null;
+      role?: string | null;
+      status?: string | null;
+    }>;
+  };
+  error?: string;
+}> {
+  const { profile } = await getSessionUser();
+  if (!profile || !isSuperAdmin(profile.role)) {
+    return { error: 'Unauthorized: Super Admin required.' };
+  }
+
+  const { data: authList, error: authError } = await supabaseAdmin.auth.admin.listUsers({
+    perPage: 200,
+  });
+  if (authError) {
+    return { error: authError.message };
+  }
+
+  const { data: profiles, error: profileError } = await supabaseAdmin
+    .from('users')
+    .select('id, email, auth_id, role, status');
+  if (profileError) {
+    return { error: profileError.message };
+  }
+
+  const profileByEmail = new Map(
+    (profiles ?? []).map((row) => [String(row.email ?? '').toLowerCase(), row])
+  );
+  const authIds = new Set(authList.users.map((user) => user.id));
+  const issues: Array<{
+    type: string;
+    email: string | null;
+    authId?: string | null;
+    profileId?: string | null;
+    role?: string | null;
+    status?: string | null;
+  }> = [];
+
+  for (const authUser of authList.users) {
+    const email = authUser.email?.toLowerCase() ?? null;
+    const row = profileByEmail.get(email ?? '');
+    if (!row) {
+      issues.push({ type: 'auth_without_profile', email, authId: authUser.id });
+      continue;
+    }
+    if (!row.auth_id) {
+      issues.push({
+        type: 'profile_missing_auth_id',
+        email,
+        authId: authUser.id,
+        profileId: row.id,
+        role: row.role,
+        status: row.status,
+      });
+    } else if (row.auth_id !== authUser.id) {
+      issues.push({
+        type: 'auth_id_mismatch',
+        email,
+        authId: authUser.id,
+        profileId: row.id,
+        role: row.role,
+        status: row.status,
+      });
+    } else if (row.status === 'Invited' || row.status === 'Pending' || row.status === 'Suspended') {
+      issues.push({
+        type: 'blocked_status',
+        email,
+        authId: authUser.id,
+        profileId: row.id,
+        role: row.role,
+        status: row.status,
+      });
+    }
+  }
+
+  for (const row of profiles ?? []) {
+    if (!row.auth_id) {
+      issues.push({
+        type: 'orphan_profile_no_auth',
+        email: row.email,
+        profileId: row.id,
+        role: row.role,
+        status: row.status,
+      });
+    } else if (!authIds.has(row.auth_id)) {
+      issues.push({
+        type: 'orphan_profile_bad_auth_id',
+        email: row.email,
+        profileId: row.id,
+        role: row.role,
+        status: row.status,
+      });
+    }
+  }
+
+  return {
+    data: {
+      authUserCount: authList.users.length,
+      profileCount: profiles?.length ?? 0,
+      issueCount: issues.length,
+      issues,
+    },
+  };
 }
 
 /** Resolve profile user id for notification scoping. */

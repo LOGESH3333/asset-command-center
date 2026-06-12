@@ -12,6 +12,9 @@ const QR_OPTIONS: QRCode.QRCodeToDataURLOptions = {
 };
 
 export async function generateAssetQrDataUrl(content: string): Promise<string> {
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[QR ENCODE]', { content, length: content.length });
+  }
   return QRCode.toDataURL(content, QR_OPTIONS);
 }
 

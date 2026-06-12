@@ -6,7 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { getSessionUser } from '@/lib/auth/session';
 import { canInviteUsers, type AppRole, INVITABLE_ROLES, isAppRole } from '@/lib/auth/roles';
 import { roleForDatabase } from '@/lib/auth/role-db';
-import { getSiteUrlFromEnv } from '@/lib/auth/site-url';
+import { getAppUrl } from '@/lib/auth/site-url';
 import { logAuthAuditEvent } from '@/lib/auth/audit-auth';
 
 export type InvitationRecord = {
@@ -115,7 +115,7 @@ export async function inviteUserAction(input: {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    const siteUrl = getSiteUrlFromEnv();
+    const siteUrl = getAppUrl();
     const activatePath = `/activate-account?token=${token}`;
     const redirectTo = `${siteUrl}/auth/callback?redirect=${encodeURIComponent(activatePath)}`;
 

@@ -42,7 +42,7 @@ export default function RequestsPage() {
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    supabase.from('asset_requests').select('id, status, priority, created_at').limit(500).then(({ data }: { data: AssetRequest[] | null }) => {
+    supabase.from('asset_requests').select('id, status, priority, created_at').limit(500).then(({ data }) => {
       setAllRequests((data as AssetRequest[]) ?? []);
       setMetricsLoading(false);
     });

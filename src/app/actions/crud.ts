@@ -195,6 +195,7 @@ async function finalizeAssetRegistration(
         name: data.name,
         asset_tag: data.asset_tag,
         serial_number: data.serial_number,
+        qr_payload: data.qr_payload,
       });
       data.serial_number = qrMeta.serial_number;
       data.qr_payload = qrMeta.qr_payload;

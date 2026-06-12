@@ -11,7 +11,7 @@ const ROUTE_ACCESS: Record<string, AppRole[]> = {
   '/dashboard/requests': ['Super_Admin', 'Admin', 'Manager', 'Employee'],
   '/dashboard/approvals': ['Super_Admin', 'Admin', 'Manager'],
   '/dashboard/allocations': ['Super_Admin', 'Admin', 'Manager', 'Employee'],
-  '/dashboard/maintenance': ['Super_Admin', 'Admin'],
+  '/dashboard/maintenance': ['Super_Admin', 'Admin', 'Manager'],
   '/dashboard/disposals': ['Super_Admin', 'Admin', 'Manager'],
   '/dashboard/procurement': ['Super_Admin', 'Admin'],
   '/dashboard/purchase-orders': ['Super_Admin', 'Admin'],

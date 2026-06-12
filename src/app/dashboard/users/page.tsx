@@ -55,7 +55,7 @@ function UsersPageContent() {
   const [dialogOpen, setDialogOpen] = useState(false);
 
   useEffect(() => {
-    supabase.from('users').select('id, role, department, created_at').limit(500).then(({ data }: { data: User[] | null }) => {
+    supabase.from('users').select('id, role, department, created_at').limit(500).then(({ data }) => {
       setAllUsers((data as User[]) ?? []);
       setMetricsLoading(false);
     });

@@ -45,7 +45,7 @@ export default function VendorsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
 
   useEffect(() => {
-    supabase.from('vendors').select('id, name, email, phone, created_at').limit(500).then(({ data }: { data: Vendor[] | null }) => {
+    supabase.from('vendors').select('id, name, email, phone, created_at').limit(500).then(({ data }) => {
       setAllVendors((data as Vendor[]) ?? []);
       setMetricsLoading(false);
     });
