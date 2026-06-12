@@ -26,6 +26,6 @@ export async function getDisposal(id: string) {
     .from('asset_disposals')
     .select('*, assets(id, name, asset_tag)')
     .eq('id', id)
-    .single();
+    .maybeSingle();
   return { data: data as AssetDisposal | null, error };
 }

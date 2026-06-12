@@ -65,6 +65,28 @@ export async function listDisposalsAction(params: {
   return { data: (data as AssetDisposal[]) ?? [], total: count ?? 0 };
 }
 
+export async function getDisposalAction(id: string) {
+  const auth = await requireBrdRole(['Admin', 'Manager']);
+  if (auth.error) {
+    return { error: auth.error, data: null as AssetDisposal | null };
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('asset_disposals')
+    .select(DISPOSAL_LIST_SELECT)
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) {
+    return { error: formatAuditTriggerDbError(error.message), data: null };
+  }
+  if (!data) {
+    return { error: 'Disposal request not found.', data: null };
+  }
+
+  return { data: data as AssetDisposal, error: undefined };
+}
+
 export async function listDisposalMetricsAction() {
   const auth = await requireBrdRole(['Admin', 'Manager']);
   if (auth.error) {

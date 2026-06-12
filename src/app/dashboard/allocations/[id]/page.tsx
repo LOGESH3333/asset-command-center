@@ -3,8 +3,11 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getAllocation } from '@/lib/supabase/brd/allocations';
-import { acknowledgeAllocationAction, returnAllocationAction } from '@/app/actions/brd/allocations';
+import {
+  acknowledgeAllocationAction,
+  getAllocationAction,
+  returnAllocationAction,
+} from '@/app/actions/brd/allocations';
 import type { AssetAllocation } from '@/lib/brd/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,9 +30,9 @@ export default function AllocationDetailPage() {
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
-    getAllocation(id).then(({ data, error: e }) => {
-      if (e) setError(e.message);
-      else setRow(data);
+    getAllocationAction(id).then((result) => {
+      if (result.error) setError(result.error);
+      else setRow(result.data);
       setLoading(false);
     });
   }, [id]);
@@ -38,7 +41,7 @@ export default function AllocationDetailPage() {
     setActing(true);
     const r = await acknowledgeAllocationAction(id);
     if (r.error) setError(r.error);
-    else { setToast('Allocation acknowledged.'); router.refresh(); getAllocation(id).then(({ data }) => setRow(data)); }
+    else { setToast('Allocation acknowledged.'); router.refresh(); getAllocationAction(id).then((result) => setRow(result.data)); }
     setActing(false);
   };
 

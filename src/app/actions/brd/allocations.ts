@@ -56,6 +56,35 @@ export async function listAllocationsAction(params: {
   return { data: (data as AssetAllocation[]) ?? [], total: count ?? 0 };
 }
 
+export async function getAllocationAction(id: string) {
+  const auth = await requireBrdRole(['Admin', 'Manager', 'Employee']);
+  if (auth.error || !auth.profile) {
+    return { error: auth.error ?? 'Unauthorized', data: null as AssetAllocation | null };
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('asset_allocations')
+    .select(ALLOCATION_LIST_SELECT)
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) {
+    return { error: formatAllocationDbError(error.message), data: null };
+  }
+  if (!data) {
+    return { error: 'Allocation not found.', data: null };
+  }
+
+  if (
+    auth.profile.role === 'Employee' &&
+    data.user_id !== auth.profile.id
+  ) {
+    return { error: 'You do not have permission to view this allocation.', data: null };
+  }
+
+  return { data: data as AssetAllocation, error: undefined };
+}
+
 export async function listAllocationMetricsAction(params: { userId?: string } = {}) {
   const auth = await requireBrdRole(['Admin', 'Manager', 'Employee']);
   if (auth.error || !auth.profile) {

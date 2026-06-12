@@ -3,8 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getDisposal } from '@/lib/supabase/brd/disposals';
-import { decideDisposalAction } from '@/app/actions/brd/disposals';
+import { decideDisposalAction, getDisposalAction } from '@/app/actions/brd/disposals';
 import type { AssetDisposal } from '@/lib/brd/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,9 +25,9 @@ export default function DisposalDetailPage() {
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
-    getDisposal(id).then(({ data, error: e }) => {
-      if (e) setError(e.message);
-      else setRow(data);
+    getDisposalAction(id).then((result) => {
+      if (result.error) setError(result.error);
+      else setRow(result.data);
       setLoading(false);
     });
   }, [id]);
@@ -39,7 +38,7 @@ export default function DisposalDetailPage() {
     if (r.error) setError(r.error);
     else {
       setToast(`Disposal ${decision.toLowerCase()}.`);
-      getDisposal(id).then(({ data }) => setRow(data));
+      getDisposalAction(id).then((result) => setRow(result.data));
     }
     setActing(false);
   };

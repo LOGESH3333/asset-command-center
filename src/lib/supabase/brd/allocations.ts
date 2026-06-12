@@ -28,6 +28,6 @@ export async function getAllocation(id: string) {
     .from('asset_allocations')
     .select('*, assets(id, name, asset_tag), users:user_id(id, first_name, last_name)')
     .eq('id', id)
-    .single();
+    .maybeSingle();
   return { data: data as AssetAllocation | null, error };
 }
